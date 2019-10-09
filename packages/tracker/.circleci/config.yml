@@ -1,0 +1,51 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: tozd/meteor-testing:ubuntu-xenial
+    environment:
+      METEOR_ALLOW_SUPERUSER: true
+    steps:
+      - checkout
+      - run:
+          command: |
+            apt-get update -q -q
+            apt-get --yes --force-yes install wget
+            wget http://launchpadlibrarian.net/413897613/chromium-codecs-ffmpeg-extra_72.0.3626.121-0ubuntu0.16.04.1_amd64.deb
+            wget http://launchpadlibrarian.net/413897611/chromium-browser_72.0.3626.121-0ubuntu0.16.04.1_amd64.deb
+            wget http://launchpadlibrarian.net/413897612/chromium-chromedriver_72.0.3626.121-0ubuntu0.16.04.1_amd64.deb
+            dpkg -i chromium-browser_72.0.3626.121-0ubuntu0.16.04.1_amd64.deb chromium-codecs-ffmpeg-extra_72.0.3626.121-0ubuntu0.16.04.1_amd64.deb chromium-chromedriver_72.0.3626.121-0ubuntu0.16.04.1_amd64.deb
+            rm -f *.deb
+      - run:
+          command: |
+            git clone --recursive -b master https://github.com/meteor/meteor.git
+            git clone --recursive -b master https://github.com/tozd/meteor-test-runner.git
+            # These packages' tests are used to further test Tracker.
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-computed-field.git peerlibrary:computed-field
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-reactive-field.git peerlibrary:reactive-field
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-blaze-components.git peerlibrary:blaze-components
+            git clone --recursive -b master https://github.com/peerlibrary/meteor-data-lookup.git peerlibrary:data-lookup
+      - run:
+          command: |
+            METEOR_HEADLESS=true meteor create --bare test-vue
+            mkdir -p test-vue/packages/tracker/
+            mv peerlibrary:computed-field test-vue/packages/
+            mv peerlibrary:reactive-field test-vue/packages/
+            mv peerlibrary:blaze-components test-vue/packages/
+            mv peerlibrary:data-lookup test-vue/packages/
+            ls -1 | egrep -v '^test-vue$|^meteor' | xargs -I {} mv {} test-vue/packages/tracker/
+            cd test-vue; meteor npm install --save git://github.com/meteor-vue/vue.git#meteor; cd ..
+            ln -s ../../meteor/packages/minimongo test-vue/packages/minimongo
+            sed -i "s/.*version.*/$(grep version meteor/packages/tracker/package.js)/" test-vue/packages/tracker/package.js
+      - run: cd test-vue; XUNIT_PREFIX=vue ../meteor-test-runner/test-all.sh
+      - run:
+          command: |
+            METEOR_HEADLESS=true meteor create --bare test-normal
+            mkdir -p test-normal/packages/
+            ln -s ../../meteor/packages/tracker test-normal/packages/tracker
+            ln -s ../../meteor/packages/minimongo test-normal/packages/minimongo
+            ln -s ../../test-vue/packages/peerlibrary:computed-field test-normal/packages/peerlibrary:computed-field
+            ln -s ../../test-vue/packages/peerlibrary:reactive-field test-normal/packages/peerlibrary:reactive-field
+            ln -s ../../test-vue/packages/peerlibrary:blaze-components test-normal/packages/peerlibrary:blaze-components
+            ln -s ../../test-vue/packages/peerlibrary:data-lookup test-normal/packages/peerlibrary:data-lookup
+      - run: cd test-normal; XUNIT_PREFIX=normal ../meteor-test-runner/test-all.sh
